@@ -1,8 +1,14 @@
 # client/agent.py
 
 import random
-from typing import Dict, Any, List
+from typing import Dict, Any
 from client.client import EmailTriageClient
+
+# NEW: import heuristic
+from utils.heuristics import guess_action
+
+# Needed to build Email object
+from env.models.state import Email
 
 
 # ─── Base Agent ─────────────────────────────────────────────
@@ -12,7 +18,6 @@ class BaseAgent:
         self.client = client
 
     def select_action(self, observation: Dict[str, Any]) -> str:
-        """Select action based on observation."""
         raise NotImplementedError
 
 
@@ -21,53 +26,43 @@ class RandomAgent(BaseAgent):
     """Agent that selects random actions."""
 
     def select_action(self, observation: Dict[str, Any]) -> str:
-        """Select a random action from available actions."""
         available = observation.get("available_actions", [])
         if not available:
             return "read"
         return random.choice(available)
 
 
-# ─── Rule Based Agent ───────────────────────────────────────
+# ─── Heuristic Rule-Based Agent (UPGRADED) ──────────────────
 class RuleBasedAgent(BaseAgent):
-    """Agent that uses simple rules to select actions."""
+    """Agent that uses NLP heuristics to select actions."""
 
     def select_action(self, observation: Dict[str, Any]) -> str:
-        """Select action based on simple rules."""
 
-        category_hint = observation.get("category_hint", "")
-        subject = observation.get("subject", "").lower()
         available = observation.get("available_actions", [])
 
-        # Rule 1 — suspicious email → mark spam
-        if category_hint == "suspicious":
-            if "mark_spam" in available:
-                return "mark_spam"
-
-        # Rule 2 — professional + urgent → escalate
-        if category_hint == "professional":
-            if any(word in subject for word in
-                   ["urgent", "asap", "critical"]):
-                if "escalate" in available:
-                    return "escalate"
-
-        # Rule 3 — professional + meeting → reply
-        if category_hint == "professional":
-            if any(word in subject for word in
-                   ["meeting", "call", "presentation"]):
-                if "reply" in available:
-                    return "reply"
-
-        # Rule 4 — casual → read
-        if category_hint == "casual":
-            if "read" in available:
-                return "read"
-
-        # Default → read
-        if "read" in available:
+        # 🚨 Safety fallback
+        if not available:
             return "read"
 
-        return available[0] if available else "read"
+        # Build Email object from observation
+        email = Email(
+            email_id=observation.get("email_id"),
+            subject=observation.get("subject", ""),
+            sender="",
+            recipient="",
+            body=observation.get("body_preview", ""),
+            timestamp=None,
+        )
+
+        # Use heuristic engine
+        predicted_action = guess_action(email)
+
+        # If valid → use it
+        if predicted_action.value in available:
+            return predicted_action.value
+
+        # Otherwise fallback
+        return available[0]
 
 
 # ─── Agent Runner ───────────────────────────────────────────
@@ -87,13 +82,13 @@ class AgentRunner:
         user_id: str = "agent",
         verbose: bool = True,
     ) -> Dict[str, Any]:
-        """Run a full episode."""
 
-        # Reset environment
+        # ─── Reset Environment ──────────────────────────────
         data = self.client.reset(
             user_id=user_id,
             task_level=task_level,
         )
+
         observation = data["observation"]
         episode_id = data["episode_id"]
 
@@ -107,15 +102,21 @@ class AgentRunner:
         step = 0
         done = False
 
-        # Run episode
+        # ─── Run Episode ────────────────────────────────────
         while not done:
-            # Select action
 
+            # ✅ FIX: stop if environment says done
             if observation.get("is_done"):
                 break
-            
+
+            email_id = observation.get("email_id")
+
+            # ✅ FIX: stop if no email
+            if not email_id:
+                break
+
+            # Select action
             action_type = self.agent.select_action(observation)
-            email_id = observation.get("email_id", "")
 
             if verbose:
                 print(f"\nStep {step + 1}")
@@ -141,7 +142,7 @@ class AgentRunner:
                 print(f"Reward  : {reward:.3f}")
                 print(f"Correct : {info.get('is_correct', False)}")
 
-        # Get final grade
+        # ─── Get Final Grade ────────────────────────────────
         grade = self.client.grade()
 
         if verbose:
