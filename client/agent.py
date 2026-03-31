@@ -44,26 +44,24 @@ class RuleBasedAgent(BaseAgent):
         if not available:
             return "read"
 
-        # Build Email object from observation
-        email = Email(
-            email_id=observation.get("email_id"),
-            subject=observation.get("subject", ""),
-            sender="",
-            recipient="",
-            body=observation.get("body_preview", ""),
-            timestamp=None,
-        )
+        # 🔥 NEW: use signals instead of heuristics
+        signals = observation.get("signals", {})
+        urgency = signals.get("urgency", 0.0)
+        spam = signals.get("spam_score", 0.0)
 
-        # Use heuristic engine
-        predicted_action = guess_action(email)
+        # 🔥 Decision logic
+        if spam > 0.6 and "mark_spam" in available:
+            return "mark_spam"
+        if spam >= 0.3 and "mark_spam" in available:
+            return "mark_spam"
+        if urgency > 0.7 and "escalate" in available:
+            return "escalate"
 
-        # If valid → use it
-        if predicted_action.value in available:
-            return predicted_action.value
+        if "read" in available:
+            return "read"
 
-        # Otherwise fallback
+        # fallback
         return available[0]
-
 
 # ─── Agent Runner ───────────────────────────────────────────
 class AgentRunner:
@@ -121,7 +119,7 @@ class AgentRunner:
             if verbose:
                 print(f"\nStep {step + 1}")
                 print(f"Email   : {observation.get('subject', '')}")
-                print(f"Hint    : {observation.get('category_hint', '')}")
+                print(f"Signals : {observation.get('signals', {})}")
                 print(f"Action  : {action_type}")
 
             # Take step
