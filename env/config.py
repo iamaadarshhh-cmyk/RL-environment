@@ -8,7 +8,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ─── Data Paths ─────────────────────────────────────────────
 DATA_DIR = BASE_DIR / "data"
 TEMPLATES_DIR = DATA_DIR / "templates"
-SAMPLE_INBOXES_DIR = DATA_DIR / "sample_inboxes"
 
 # ─── Environment Settings ───────────────────────────────────
 MAX_STEPS = 20               # Max steps per episode
@@ -46,5 +45,5 @@ SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8000
 
 # ─── Logging ────────────────────────────────────────────────
-LOG_DIR = BASE_DIR / "logs"
+LOG_DIR = BASE_DIR / "log_collector"
 LOG_LEVEL = "DEBUG"
