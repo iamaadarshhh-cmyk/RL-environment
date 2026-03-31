@@ -252,14 +252,3 @@ final_score =
 ```
 
 ---
-
-## 👤 Author
-
-Your Name
-GitHub: yourusername
-
----
-
-## 📄 License
-
-MIT License

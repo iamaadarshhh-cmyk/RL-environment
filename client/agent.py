@@ -110,6 +110,10 @@ class AgentRunner:
         # Run episode
         while not done:
             # Select action
+
+            if observation.get("is_done"):
+                break
+            
             action_type = self.agent.select_action(observation)
             email_id = observation.get("email_id", "")
 

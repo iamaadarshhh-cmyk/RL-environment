@@ -89,6 +89,7 @@ class TransitionEngine:
             state.inbox.unread_count -= 1
 
         elif action.action_type == ActionType.ARCHIVE:
+            email.is_read = True
             state.inbox.unread_count -= 1
 
         elif action.action_type == ActionType.MARK_SPAM:
@@ -107,6 +108,7 @@ class TransitionEngine:
             email.labels.append("escalated")
 
         elif action.action_type == ActionType.DEFER:
+            email.is_read =True
             email.labels.append("deferred")
 
         elif action.action_type == ActionType.SUMMARIZE:

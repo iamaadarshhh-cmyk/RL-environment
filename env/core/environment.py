@@ -82,6 +82,7 @@ class EmailTriageEnvironment:
             email_id=action.email_id,
             action=action,
             result=result,
+            reward=result.reward,   #added this line to fix error
         )
         self.history.add_step(step_record)
 
