@@ -3,23 +3,21 @@
 from typing import Tuple, Optional
 from env.models.state import AgentState, Email
 from env.models.actions import Action, ActionResult, ActionType, ActionValidator
-from env.config import (
-    MAX_STEPS,
-    REWARD_CORRECT_ACTION,
-    REWARD_WRONG_ACTION,
-    REWARD_PARTIAL_CREDIT,
-    REWARD_STEP_PENALTY,
-)
+from env.config import MAX_STEPS
+from reward.reward_engine import RewardEngine
 
 
 # ─── Transition Engine ──────────────────────────────────────
 class TransitionEngine:
 
+    def __init__(self):
+        self.reward_engine = RewardEngine()
+
     def step(
         self,
         state: AgentState,
         action: Action,
-        expected_action: ActionType,
+        task,   # ✅ replaced expected_action with task
     ) -> Tuple[AgentState, ActionResult]:
         """
         Take one step in the environment.
@@ -36,10 +34,7 @@ class TransitionEngine:
             return state, result
 
         # ─── Execute Action ─────────────────────────────────
-        state, result = self._execute_action(state, action, expected_action)
-
-        # ─── Apply Step Penalty ─────────────────────────────
-        result.reward += REWARD_STEP_PENALTY
+        state, result = self._execute_action(state, action, task)
 
         # ─── Update State ───────────────────────────────────
         state.step_count += 1
@@ -60,32 +55,33 @@ class TransitionEngine:
         self,
         state: AgentState,
         action: Action,
-        expected_action: ActionType,
+        task,
     ) -> Tuple[AgentState, ActionResult]:
         """Execute action and return updated state + result."""
 
         email = state.current_email
-        is_correct = action.action_type == expected_action
-        is_partial = self._is_partial(action.action_type, expected_action)
 
-        # ─── Calculate Reward ────────────────────────────────
-        if is_correct:
-            reward = REWARD_CORRECT_ACTION
-        elif is_partial:
-            reward = REWARD_PARTIAL_CREDIT
-        else:
-            reward = REWARD_WRONG_ACTION
+        # ─── NEW: Task-based evaluation (Fix 2) ─────────────
+        score = task.evaluate_action(state, action)
 
-        # ─── Update Email Status ─────────────────────────────
+        is_correct = score >= 0.9
+        is_partial = 0.3 <= score < 0.9
+
+        # ─── Update Email State ─────────────────────────────
         if action.action_type == ActionType.READ:
             email.is_read = True
+            email.is_handled= True
+            state.inbox.unread_count -= 1
 
         elif action.action_type == ActionType.REPLY:
             email.is_replied = True
             email.is_read = True
+            email.is_handled= True
+            state.inbox.unread_count =-1
 
         elif action.action_type == ActionType.DELETE:
             email.is_deleted = True
+            email.is_handled= True
             state.inbox.unread_count -= 1
 
         elif action.action_type == ActionType.ARCHIVE:
@@ -94,10 +90,13 @@ class TransitionEngine:
 
         elif action.action_type == ActionType.MARK_SPAM:
             email.is_deleted = True
+            email.is_handled= True
             state.inbox.unread_count -= 1
 
         elif action.action_type == ActionType.FORWARD:
             email.is_read = True
+            state.inbox.unread_count -= 1
+            email.is_handled= True
 
         elif action.action_type == ActionType.LABEL:
             label = action.parameters.get("label_name", "unlabeled")
@@ -105,51 +104,67 @@ class TransitionEngine:
 
         elif action.action_type == ActionType.ESCALATE:
             email.is_read = True
+            email.is_handled= True
+            state.inbox.unread_count -= 1
             email.labels.append("escalated")
 
         elif action.action_type == ActionType.DEFER:
-            email.is_read =True
+            email.is_read = True
+            email.is_handled= True
+            state.inbox.unread_count -= 1
             email.labels.append("deferred")
 
         elif action.action_type == ActionType.SUMMARIZE:
             email.is_read = True
+            email.is_handled= True
+            state.inbox.unread_count -= 1
 
-        # ─── Move to Next Email ──────────────────────────────
+        # ─── Move to Next Email ─────────────────────────────
         state.current_email = self._next_email(state)
 
+        # ─── Temporary Result for Reward Engine ─────────────
+        temp_result = ActionResult(
+            success=True,
+            action_type=action.action_type,
+            email_id=action.email_id,
+            is_correct=is_correct,
+            is_partial=is_partial,
+            metadata={"task_score": score},
+        )
+
+        # ─── Calculate Reward (Fix 1) ───────────────────────
+        reward_data = self.reward_engine.calculate(
+            result=temp_result,
+            email=email,
+            step_count=state.step_count,
+            max_steps=MAX_STEPS,
+        )
+
+        # 🔥 Boost reward with task score (VERY IMPORTANT)
+        total_reward = reward_data["total_reward"] + (score * 0.5)
+
+        # ─── Final Result ───────────────────────────────────
         result = ActionResult(
             success=True,
             action_type=action.action_type,
             email_id=action.email_id,
-            reward=reward,
+            reward=round(total_reward, 3),
             message=f"{action.action_type.value} executed successfully",
             is_correct=is_correct,
             is_partial=is_partial,
+            metadata={
+                **reward_data,
+                "task_score": score,
+            },
         )
 
         return state, result
-
-    # ─── Partial Credit Check ───────────────────────────────
-    def _is_partial(
-        self,
-        taken: ActionType,
-        expected: ActionType
-    ) -> bool:
-        """Check if action deserves partial credit."""
-        partial_matches = {
-            ActionType.DELETE: [ActionType.MARK_SPAM, ActionType.ARCHIVE],
-            ActionType.MARK_SPAM: [ActionType.DELETE, ActionType.ARCHIVE],
-            ActionType.ARCHIVE: [ActionType.DELETE, ActionType.MARK_SPAM],
-            ActionType.REPLY: [ActionType.FORWARD, ActionType.SUMMARIZE],
-            ActionType.FORWARD: [ActionType.REPLY, ActionType.ESCALATE],
-        }
-        return taken in partial_matches.get(expected, [])
 
     # ─── Next Email ─────────────────────────────────────────
     def _next_email(self, state: AgentState) -> Optional[Email]:
         """Move to next unread email in inbox."""
         for email in state.inbox.emails:
-            if not email.is_read and not email.is_deleted:
+            if not email.is_handled:
                 return email
         return None
 
@@ -159,7 +174,7 @@ class TransitionEngine:
             success=False,
             action_type=action.action_type,
             email_id=action.email_id,
-            reward=REWARD_WRONG_ACTION,
+            reward=-0.5,
             message="Invalid action type",
             is_correct=False,
         )
@@ -170,31 +185,7 @@ class TransitionEngine:
             success=False,
             action_type=action.action_type,
             email_id=action.email_id,
-            reward=REWARD_WRONG_ACTION,
+            reward=-0.5,
             message="Missing required parameters",
             is_correct=False,
         )
-
-
-## What it does in one line
-# > `TransitionEngine` is the **engine of the environment** — it takes an action, updates the state, and returns the result. ⚙️
-
-# ---
-
-# ## Flow
-# ```
-# Agent sends Action
-#       ↓
-# Validate action        ← is it allowed? has parameters?
-#       ↓
-# Execute action         ← update email status
-#       ↓
-# Calculate reward       ← correct / partial / wrong
-#       ↓
-# Apply step penalty     ← -0.01 every step
-#       ↓
-# Update state           ← step count, total reward, history
-#       ↓
-# Move to next email     ← pick next unread email
-#       ↓
-# Return new State + ActionResult

@@ -18,6 +18,7 @@ class Email:
     is_read: bool = False                  # Has it been read?
     is_replied: bool = False               # Has it been replied to?
     is_deleted: bool = False               # Has it been deleted?
+    is_handled: bool = False
     labels: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 

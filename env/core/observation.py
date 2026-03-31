@@ -25,7 +25,6 @@ class ObservationBuilder:
             "subject": email.subject,
             "sender": email.sender,
             "body_preview": email.body[:200],         # First 200 chars only
-            "category_hint": ObservationBuilder._category_hint(email),
 
             # ─── Inbox Status ───────────────────────────────
             "unread_count": state.inbox.unread_count,
@@ -41,6 +40,10 @@ class ObservationBuilder:
 
             # ─── Recent History ─────────────────────────────
             "recent_actions": state.action_history[-OBSERVATION_HISTORY:],
+            "signals": {
+                        "urgency": ObservationBuilder._urgency_score(email),
+                        "spam_score": ObservationBuilder._spam_score(email),
+                        }
         }
 
     @staticmethod
@@ -75,13 +78,43 @@ class ObservationBuilder:
             actions = [a for a in actions if a != "delete"]
 
         return actions
+    
 
     @staticmethod
-    def _category_hint(email: Email) -> Optional[str]:
-        """Give agent a subtle hint about email category."""
-        hints = {
-            "spam": "suspicious",
-            "work": "professional",
-            "personal": "casual",
-        }
-        return hints.get(email.category, None)
+    def _urgency_score(email: Email) -> float:
+        text = (email.subject + " " + email.body).lower()
+
+        urgency_words = [
+            "urgent", "asap", "immediately", "critical",
+            "deadline", "today", "now", "important"
+        ]
+
+        words = text.split()  # 🔥 tokenize
+
+        matches = sum(1 for w in urgency_words if w in words)
+
+        return min(matches / 2, 1.0)
+    
+
+    @staticmethod
+    def _spam_score(email: Email) -> float:
+        text = (email.subject + " " + email.body).lower()
+
+        spam_patterns = [
+            "win", "winner", "free", "click", "prize", "offer",
+            "urgent", "verify", "account", "suspended",
+            "lose", "weight", "tax", "irs", "lottery",
+            "work from home", "earn", "$", "income",
+            "limited time", "act now", "guaranteed",
+            "back taxes", "owe", "penalty",
+            "medication", "cheap", "pharmacy", "pills", "online"
+        ]
+        matches = 0
+        for pattern in spam_patterns:
+            if pattern in text:
+                matches += 1
+
+        # normalize score
+        return min(matches / 3, 1.0)
+
+    

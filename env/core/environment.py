@@ -68,13 +68,17 @@ class EmailTriageEnvironment:
         if self.state is None:
             raise ValueError("Environment not reset. Call reset() first.")
 
-        # Get expected action from task
-        expected_action = self._get_expected_action()
+       
 
         # Execute transition
         self.state, result = self.transition.step(
-            self.state, action, expected_action
+            self.state, action, self.task
         )
+
+        # 🚨 HARD SAFETY STOP
+        if self.state.step_count >= MAX_STEPS:
+            self.state.is_done = True
+            self.state.current_email = None
 
         # Record step in history
         step_record = StepRecord(
@@ -114,14 +118,7 @@ class EmailTriageEnvironment:
 
         return observation, result.reward, self.state.is_done, info
 
-    # ─── Get Expected Action ────────────────────────────────
-    def _get_expected_action(self) -> ActionType:
-        """Get expected action for current email from task."""
-        if self.task and self.state.current_email:
-            return self.task.get_expected_action(
-                self.state.current_email
-            )
-        return ActionType.READ  # default
+   
 
     # ─── Render ─────────────────────────────────────────────
     def render(self) -> str:
