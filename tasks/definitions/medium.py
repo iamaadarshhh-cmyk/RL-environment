@@ -44,3 +44,16 @@ class MediumTask:
                 return ActionType.READ
 
         return ActionType.READ  # default
+    
+    def evaluate_action(self, state, action):
+        email = state.current_email
+
+        if email is None:
+            return 0.0
+
+        expected = self.get_expected_action(email)
+
+        if action.action_type == expected:
+            return 1.0
+
+        return 0.0
