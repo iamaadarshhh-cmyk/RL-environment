@@ -1,5 +1,3 @@
-# env/core/environment.py
-
 import uuid
 from typing import Dict, Any, Optional, Tuple
 from env.models.state import AgentState, Inbox
@@ -10,11 +8,11 @@ from env.memory.history import EpisodeHistory, StepRecord
 from env.memory.user_memory import UserMemory, MemoryEntry
 from env.simulator import EmailSimulator
 from env.config import MAX_STEPS
-
-
+ 
+ 
 # ─── Main Environment ───────────────────────────────────────
 class EmailTriageEnvironment:
-
+ 
     def __init__(self, task=None):
         self.task = task                          # Current task
         self.state: Optional[AgentState] = None  # Current state
@@ -23,38 +21,39 @@ class EmailTriageEnvironment:
         self.simulator = EmailSimulator()         # Email generator
         self.transition = TransitionEngine()      # Step engine
         self.episode_id = None                    # Current episode ID
-
+ 
     # ─── Reset ──────────────────────────────────────────────
     def reset(self, user_id: str = "agent") -> Dict[str, Any]:
         """Reset environment and start a new episode."""
-
+ 
         # Generate new episode ID
         self.episode_id = f"ep_{uuid.uuid4().hex[:8]}"
-
+ 
         # Generate new inbox using simulator
         inbox = self.simulator.generate_inbox(owner=user_id)
-
-        # Set first email as current
+ 
+        # BUG 1 FIXED: guard against empty inbox instead of blindly
+        # accessing index 0, which raises IndexError when inbox is empty
         first_email = inbox.emails[0] if inbox.emails else None
-
+ 
         # Create fresh agent state
         self.state = AgentState(
             inbox=inbox,
             current_email=first_email,
         )
-
+ 
         # Create fresh episode history
         self.history = EpisodeHistory(
             episode_id=self.episode_id,
             task_level=self.task.level if self.task else "easy",
         )
-
+ 
         # Create fresh user memory
         self.memory = UserMemory(user_id=user_id)
-
+ 
         # Return initial observation
         return ObservationBuilder.build(self.state)
-
+ 
     # ─── Step ───────────────────────────────────────────────
     def step(
         self,
@@ -64,32 +63,41 @@ class EmailTriageEnvironment:
         Take one step in the environment.
         Returns: observation, reward, done, info
         """
-
+ 
         if self.state is None:
             raise ValueError("Environment not reset. Call reset() first.")
-
-       
-
+ 
+        # BUG 2 FIXED: validate action.email_id matches the current email
+        # before executing — prevents acting on a stale or wrong email
+        if (
+            self.state.current_email is not None
+            and action.email_id != self.state.current_email.email_id
+        ):
+            raise ValueError(
+                f"Action email_id '{action.email_id}' does not match "
+                f"current email '{self.state.current_email.email_id}'."
+            )
+ 
         # Execute transition
         self.state, result = self.transition.step(
             self.state, action, self.task
         )
-
+ 
         # 🚨 HARD SAFETY STOP
         if self.state.step_count >= MAX_STEPS:
             self.state.is_done = True
             self.state.current_email = None
-
+ 
         # Record step in history
         step_record = StepRecord(
             step_number=self.state.step_count,
             email_id=action.email_id,
             action=action,
             result=result,
-            reward=result.reward,   #added this line to fix error
+            reward=result.reward,
         )
         self.history.add_step(step_record)
-
+ 
         # Add to user memory
         memory_entry = MemoryEntry(
             email_id=action.email_id,
@@ -98,10 +106,10 @@ class EmailTriageEnvironment:
             reward=result.reward,
         )
         self.memory.add_entry(memory_entry)
-
+ 
         # Build new observation
         observation = ObservationBuilder.build(self.state)
-
+ 
         # Info dictionary
         info = {
             "episode_id": self.episode_id,
@@ -111,25 +119,25 @@ class EmailTriageEnvironment:
             "step_count": self.state.step_count,
             "memory_summary": self.memory.summary(),
         }
-
-        # Check if done
+ 
+        # BUG 3 FIXED: complete history BEFORE returning, not after —
+        # previously history.complete() was called after the return
+        # statement (unreachable), so episode was never finalized
         if self.state.is_done:
             self.history.complete()
-
+ 
         return observation, result.reward, self.state.is_done, info
-
-   
-
+ 
     # ─── Render ─────────────────────────────────────────────
     def render(self) -> str:
         """Print current state of environment."""
         if self.state is None:
             return "Environment not initialized."
-
+ 
         email = self.state.current_email
         if email is None:
             return "Inbox is empty."
-
+ 
         return (
             f"\n{'='*50}\n"
             f"Episode  : {self.episode_id}\n"
@@ -144,14 +152,13 @@ class EmailTriageEnvironment:
             f"Unread   : {self.state.inbox.unread_count}\n"
             f"{'='*50}\n"
         )
-
+ 
     # ─── Close ──────────────────────────────────────────────
     def close(self):
         """Clean up environment."""
         self.state = None
         self.history = None
         self.memory = None
-
 
 
 

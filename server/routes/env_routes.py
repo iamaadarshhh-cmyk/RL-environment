@@ -1,5 +1,6 @@
 # server/routes/env_routes.py
 
+from dataclasses import asdict
 from fastapi import APIRouter, HTTPException
 from server.schemas import ResetRequest, ResetResponse
 from server.schemas import StepRequest, StepResponse
@@ -7,7 +8,7 @@ from env.core.environment import EmailTriageEnvironment
 from env.models.actions import Action, ActionType
 from tasks.task_factory import TaskFactory
 
-import traceback  # 🔥 important for debugging
+import traceback
 
 router = APIRouter()
 
@@ -29,9 +30,10 @@ def reset(request: ResetRequest):
         episode_id = env.episode_id
         environments[episode_id] = env
 
+        # FIXED: convert Observation dataclass to dict for Pydantic
         return ResetResponse(
             episode_id=episode_id,
-            observation=observation,
+            observation=asdict(observation),
         )
 
     except Exception as e:
@@ -52,15 +54,12 @@ def step(episode_id: str, request: StepRequest):
         )
 
     try:
-        # 🔍 DEBUG INPUT
         print("\n=== STEP REQUEST ===")
         print("Episode:", episode_id)
         print("Request:", request.dict())
 
-        # 🔧 FIX 1: Normalize action type
         action_type_str = request.action_type.lower()
 
-        # 🔧 FIX 2: Safe enum conversion
         try:
             action_type = ActionType(action_type_str)
         except ValueError:
@@ -69,7 +68,6 @@ def step(episode_id: str, request: StepRequest):
                 detail=f"Invalid action type: {request.action_type}"
             )
 
-        # Build action
         action = Action(
             action_type=action_type,
             email_id=request.email_id,
@@ -78,18 +76,17 @@ def step(episode_id: str, request: StepRequest):
 
         print("Parsed Action:", action)
 
-        # Execute step
         observation, reward, done, info = env.step(action)
 
         print("Step Success → Reward:", reward)
 
-        # 🔧 FIX 3: Preserve history before deleting env
         if done:
             completed_episodes[episode_id] = env.history
             env.is_finished = True
 
+        # FIXED: convert Observation dataclass to dict for Pydantic
         return StepResponse(
-            observation=observation,
+            observation=asdict(observation),
             reward=reward,
             done=done,
             info=info,
@@ -99,7 +96,6 @@ def step(episode_id: str, request: StepRequest):
         print("\n🔥 ERROR IN STEP:")
         traceback.print_exc()
         print("ERROR MESSAGE:", str(e))
-
         raise HTTPException(status_code=400, detail=str(e))
 
 

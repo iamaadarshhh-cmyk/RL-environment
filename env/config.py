@@ -1,22 +1,27 @@
 # env/config.py
-
+ 
 from pathlib import Path
-
+ 
 # ─── Project Root ───────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+ 
 # ─── Data Paths ─────────────────────────────────────────────
 DATA_DIR = BASE_DIR / "data"
 TEMPLATES_DIR = DATA_DIR / "templates"
-
+ 
+# ─── Ensure directories exist ───────────────────────────────
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+ 
 # ─── Environment Settings ───────────────────────────────────
 MAX_STEPS = 20               # Max steps per episode
 MAX_EMAILS_PER_INBOX = 10   # Emails per simulated inbox
 OBSERVATION_HISTORY = 5     # How many past steps to include
-
+MAX_MEMORY_ENTRIES = 100     # Max entries stored in user memory
+ 
 # ─── Task Difficulty Levels ─────────────────────────────────
 TASK_LEVELS = ["easy", "medium", "hard"]
-
+ 
 # ─── Action Space ───────────────────────────────────────────
 VALID_ACTIONS = [
     "read",
@@ -30,20 +35,44 @@ VALID_ACTIONS = [
     "defer",
     "summarize",
 ]
-
+ 
 # ─── Reward Settings ────────────────────────────────────────
 REWARD_CORRECT_ACTION = 1.0
 REWARD_WRONG_ACTION = -0.5
 REWARD_PARTIAL_CREDIT = 0.3
-REWARD_STEP_PENALTY = -0.01   # Small penalty per step (efficiency)
-
+REWARD_STEP_PENALTY = -0.01   # Already negative — add directly, don't subtract
+ 
 # ─── Grader Settings ────────────────────────────────────────
 PASS_THRESHOLD = 0.7          # Score >= 0.7 considered passing
-
+ 
 # ─── Server Settings ────────────────────────────────────────
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8000
-
+ 
 # ─── Logging ────────────────────────────────────────────────
-LOG_DIR = BASE_DIR / "log_collector"
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_LEVEL = "DEBUG"
+ 
+# ─── Exports ────────────────────────────────────────────────
+__all__ = [
+    "BASE_DIR",
+    "DATA_DIR",
+    "TEMPLATES_DIR",
+    "LOG_DIR",
+    "LOG_LEVEL",
+    "MAX_STEPS",
+    "MAX_EMAILS_PER_INBOX",
+    "OBSERVATION_HISTORY",
+    "MAX_MEMORY_ENTRIES",
+    "TASK_LEVELS",
+    "VALID_ACTIONS",
+    "REWARD_CORRECT_ACTION",
+    "REWARD_WRONG_ACTION",
+    "REWARD_PARTIAL_CREDIT",
+    "REWARD_STEP_PENALTY",
+    "PASS_THRESHOLD",
+    "SERVER_HOST",
+    "SERVER_PORT",
+]
+ 
