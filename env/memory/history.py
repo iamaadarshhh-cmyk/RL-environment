@@ -14,7 +14,7 @@ class StepRecord:
     action: Action                      # What action was taken
     result: ActionResult                # What happened
     reward: float                       # Reward earned
-    timestamp: datetime = field(default_factory=datetime.now)  # When it happened
+    timestamp: datetime = field(default_factory=datetime.now)
     notes: str = ""                     # Optional notes
 
 
@@ -23,16 +23,20 @@ class StepRecord:
 class EpisodeHistory:
     episode_id: str                     # Unique episode ID
     task_level: str                     # easy / medium / hard
-    steps: List[StepRecord] = field(default_factory=list)  # All steps taken
-    total_reward: float = 0.0          # Total reward accumulated
+    steps: List[StepRecord] = field(default_factory=list)
     is_complete: bool = False           # Is episode finished?
     start_time: datetime = field(default_factory=datetime.now)
     end_time: Optional[datetime] = None
 
+    # FIX: total_reward is now a computed property instead of a separate
+    # accumulator — eliminates the dual-tracking drift with AgentState.total_reward
+    @property
+    def total_reward(self) -> float:
+        return round(sum(s.reward for s in self.steps), 3)
+
     def add_step(self, step: StepRecord):
         """Add a new step to history."""
         self.steps.append(step)
-        self.total_reward += step.reward
 
     def get_last_step(self) -> Optional[StepRecord]:
         """Get the most recent step."""
@@ -46,6 +50,9 @@ class EpisodeHistory:
 
     def complete(self):
         """Mark episode as complete."""
+        # FIX: guard against duplicate calls overwriting end_time
+        if self.is_complete:
+            return
         self.is_complete = True
         self.end_time = datetime.now()
 
@@ -57,10 +64,10 @@ class EpisodeHistory:
             "total_steps": len(self.steps),
             "total_reward": self.total_reward,
             "is_complete": self.is_complete,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
+            # FIX: convert datetime to ISO strings for JSON serialization
+            "start_time": self.start_time.isoformat(),
+            "end_time": self.end_time.isoformat() if self.end_time else None,
         }
-
 
 
 

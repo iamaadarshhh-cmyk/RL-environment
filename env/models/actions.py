@@ -1,7 +1,7 @@
 # env/models/actions.py
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from enum import Enum
 
 
@@ -22,14 +22,18 @@ class ActionType(Enum):
 # ─── Single Action ──────────────────────────────────────────
 @dataclass
 class Action:
+    """
+    Represents one action the agent wants to take.
+
+    Parameters examples:
+        reply    → {"message": "Thanks for your email!"}
+        forward  → {"to": "manager@company.com"}
+        label    → {"label_name": "urgent"}
+        defer    → {"defer_until": "2024-01-15"}
+    """
     action_type: ActionType            # What action to take
     email_id: str                      # Which email to act on
     parameters: Dict[str, Any] = field(default_factory=dict)  # Extra info
-    # Examples of parameters:
-    # reply    → {"message": "Thanks for your email!"}
-    # forward  → {"to": "manager@company.com"}
-    # label    → {"label_name": "urgent"}
-    # defer    → {"defer_until": "2024-01-15"}
 
 
 # ─── Action Result ──────────────────────────────────────────
@@ -38,49 +42,60 @@ class ActionResult:
     success: bool                      # Did the action succeed?
     action_type: ActionType            # What action was taken
     email_id: str                      # Which email was acted on
-    reward: float = 0.0               # Reward earned from this action
+    reward: float = 0.0                # Reward earned from this action
     message: str = ""                  # Human readable result message
     is_correct: bool = False           # Was it the correct action?
     is_partial: bool = False           # Was it partially correct?
     metadata: Dict[str, Any] = field(default_factory=dict)  # Extra info
 
+    def __post_init__(self):
+        # FIX: guard against contradictory correctness flags —
+        # is_correct (score >= 0.9) and is_partial (0.3 <= score < 0.9)
+        # are mutually exclusive by definition
+        if self.is_correct and self.is_partial:
+            raise ValueError(
+                "ActionResult cannot be both is_correct and is_partial. "
+                "These flags are mutually exclusive."
+            )
+
 
 # ─── Action Validator ───────────────────────────────────────
 class ActionValidator:
 
-    VALID_ACTIONS = [action.value for action in ActionType]
+    # FIX: single source of truth for required parameters —
+    # previously requires_parameters() and validate_parameters() each had
+    # their own hardcoded lists that could silently drift out of sync
+    REQUIRED_PARAMS: Dict[ActionType, List[str]] = {
+        ActionType.REPLY:   ["message"],
+        ActionType.FORWARD: ["to"],
+        ActionType.LABEL:   ["label_name"],
+        ActionType.DEFER:   ["defer_until"],
+    }
 
     @staticmethod
     def is_valid(action_type: str) -> bool:
-        """Check if action type is valid."""
-        return action_type in ActionValidator.VALID_ACTIONS
+        """Check if action type string matches a known ActionType."""
+        # FIX: check directly against the enum instead of a stale class-level
+        # list — ensures new ActionType members are always recognised
+        return action_type in {a.value for a in ActionType}
 
     @staticmethod
     def requires_parameters(action_type: ActionType) -> bool:
         """Check if action needs extra parameters."""
-        return action_type in [
-            ActionType.REPLY,
-            ActionType.FORWARD,
-            ActionType.LABEL,
-            ActionType.DEFER,
-        ]
+        # FIX: derived from REQUIRED_PARAMS — no longer a separate hardcoded list
+        return action_type in ActionValidator.REQUIRED_PARAMS
 
     @staticmethod
     def validate_parameters(action: Action) -> bool:
-        """Check if required parameters are provided."""
-        required = {
-            ActionType.REPLY: ["message"],
-            ActionType.FORWARD: ["to"],
-            ActionType.LABEL: ["label_name"],
-            ActionType.DEFER: ["defer_until"],
-        }
-        if action.action_type in required:
-            for key in required[action.action_type]:
-                if key not in action.parameters:
-                    return False
+        """Check if required parameters are provided and non-empty."""
+        keys = ActionValidator.REQUIRED_PARAMS.get(action.action_type, [])
+        for key in keys:
+            value = action.parameters.get(key)
+            # FIX: check value is non-empty — previously only checked key presence,
+            # so {"message": ""} or {"to": ""} would silently pass validation
+            if not value:
+                return False
         return True
-
-
 
 
 # ## What each part does

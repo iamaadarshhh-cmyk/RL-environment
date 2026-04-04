@@ -1,9 +1,10 @@
 # env/memory/user_memory.py
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 from env.models.actions import ActionType
+from env.config import MAX_MEMORY_ENTRIES
 
 
 # ─── Single Memory Entry ────────────────────────────────────
@@ -11,7 +12,9 @@ from env.models.actions import ActionType
 class MemoryEntry:
     email_id: str                       # Which email this memory is about
     action_taken: ActionType            # What action was taken
-    outcome: str                        # What happened ("success", "failure")
+    # FIX: outcome is now a Literal type — prevents silent mismatches
+    # from callers passing "Success", "correct", "1", etc.
+    outcome: Literal["success", "failure"]
     reward: float                       # Reward earned
     timestamp: datetime = field(default_factory=datetime.now)
     tags: List[str] = field(default_factory=list)  # e.g. ["spam", "urgent"]
@@ -22,14 +25,18 @@ class MemoryEntry:
 class UserMemory:
     user_id: str                        # Whose memory this is
     entries: List[MemoryEntry] = field(default_factory=list)
-    action_counts: Dict[str, int] = field(default_factory=dict)  # How many times each action used
-    success_counts: Dict[str, int] = field(default_factory=dict) # How many times each action succeeded
-    total_entries: int = 0
+    action_counts: Dict[str, int] = field(default_factory=dict)
+    success_counts: Dict[str, int] = field(default_factory=dict)
+    # FIX: removed total_entries manual counter — it could drift from
+    # len(entries) if anything appended directly. Computed on demand instead.
 
     def add_entry(self, entry: MemoryEntry):
-        """Add a new memory entry."""
+        """Add a new memory entry, enforcing a rolling size cap."""
         self.entries.append(entry)
-        self.total_entries += 1
+
+        # FIX: cap memory size to prevent unbounded growth in long benchmarks
+        if len(self.entries) > MAX_MEMORY_ENTRIES:
+            self.entries.pop(0)
 
         # Track action counts
         action = entry.action_taken.value
@@ -66,9 +73,15 @@ class UserMemory:
         """Return a summary of user memory."""
         return {
             "user_id": self.user_id,
-            "total_entries": self.total_entries,
+            # FIX: use len(entries) as single source of truth
+            "total_entries": len(self.entries),
             "action_counts": self.action_counts,
-            "success_counts": self.success_counts,
+            # FIX: expose computed success rates instead of raw counts
+            # so consumers don't have to recompute manually
+            "success_rates": {
+                action: self.get_success_rate(ActionType(action))
+                for action in self.action_counts
+            },
             "most_used_action": self.get_most_used_action(),
         }
 
